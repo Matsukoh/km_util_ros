@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+# -*- coding:utf-8 -*-
+import rospy
+import math 
+import tf
+
+import numpy as np
+
+from math import cos, sin, sqrt, pi
+
+from nav_msgs.msg import Odometry
+from std_msgs.msg import String
+from std_msgs.msg import Float64
+from geometry_msgs.msg import Twist
+from sensor_msgs.msg import Image
+from std_srvs.srv import Empty
+# import ros_numpy as rnp
+import cv2
+from cv_bridge import CvBridge, CvBridgeError
+
+
+class ImageTransporter:
+  def __init__(self):
+    self.img_pub = rospy.Publisher(rospy.get_param('~output_image', 'output_image'), Image, queue_size=10)
+    self.bridge = CvBridge()
+    # self.img_pub_1 = rospy.Publisher(rospy.get_param('output_image_name_1', 'output_image_1'), Image, queue_size=1)
+    # self.img_pub_2 = rospy.Publisher(rospy.get_param('output_image_name_2', 'output_image_2'), Image, queue_size=1)
+    # self.img_pub_3 = rospy.Publisher(rospy.get_param('output_image_name_3', 'output_image_3'), Image, queue_size=1)
+    # self.img_pub_4 = rospy.Publisher(rospy.get_param('output_image_name_4', 'output_image_4'), Image, queue_size=1)
+    # self.img_pub_5 = rospy.Publisher(rospy.get_param('output_image_name_5', 'output_image_5'), Image, queue_size=1)
+    # self.img_pub_6 = rospy.Publisher(rospy.get_param('output_image_name_6', 'output_image_6'), Image, queue_size=1)
+    # self.img_pub_7 = rospy.Publisher(rospy.get_param('output_image_name_7', 'output_image_7'), Image, queue_size=1)
+    # self.img_pub_8 = rospy.Publisher(rospy.get_param('output_image_name_8', 'output_image_8'), Image, queue_size=1)
+    # self.img_pub_9 = rospy.Publisher(rospy.get_param('output_image_name_9', 'output_image_9'), Image, queue_size=1)
+    # self.img_pub_10 = rospy.Publisher(rospy.get_param('output_image_name_10', 'output_image_10'), Image, queue_size=1)
+   
+  
+    # rospy.Subscriber('serial_string', String, self.callback_string, queue_size=100)
+    # rospy.Subscriber('wheel_radius', Float64, self.callback_radius, queue_size=1)
+    # rospy.Subscriber('wheel_tread',  Float64, self.callback_tread,  queue_size=1)
+
+    
+    rospy.Subscriber(rospy.get_param('~input_image', 'input_image'), Image, self.callback_scan,queue_size=10)
+  
+  def callback_scan(self, data):
+    try:
+      cv_image = self.bridge.imgmsg_to_cv2(data, "mono16")
+    except CvBridgeError as e:
+      print(e)
+    
+    try:
+      pub_msg = self.bridge.cv2_to_imgmsg(cv_image, "16UC1")
+      pub_msg.header = data.header
+    except CvBridgeError as e:
+      print(e)
+
+    self.img_pub.publish(pub_msg)
+      # print(len(data.data))
+      # if(len(data.data) > 0):
+        # self.img_pub_1.publish(data)
+        # image = rnp.numpify(data)
+        # height = data.height
+        # half_height = height / 2
+        # th_height = half_height/3
+        # print(image[240:,:].shape)
+        # img_1 = rnp.msgify(Image, image[:,:], "16UC1")
+        # img_1 = rnp.msgify(Image, image[half_height:half_height + th_height,:], "16UC1")
+        # img_2 = rnp.msgify(Image, image[half_height+th_height:half_height + th_height * 2,:], "16UC1")
+        # img_3 = rnp.msgify(Image, image[half_height+th_height * 2:half_height + th_height * 3,:], "16UC1")
+        # img_4 = rnp.msgify(Image, image[half_height+th_height * 3:half_height + th_height * 4,:], "16UC1")
+        # img_5 = rnp.msgify(Image, image[half_height+th_height * 4:half_height + th_height * 5,:], "16UC1")
+        # img_6 = rnp.msgify(Image, image[half_height+th_height * 5:half_height + th_height * 6,:], "16UC1")
+        # img_7 = rnp.msgify(Image, image[half_height+th_height * 6:half_height + th_height * 7,:], "16UC1")
+        # img_8 = rnp.msgify(Image, image[half_height+th_height * 7:half_height + th_height * 8,:], "16UC1")
+        # img_9 = rnp.msgify(Image, image[half_height+th_height * 8:half_height + th_height * 9,:], "16UC1")
+        # img_10 = rnp.msgify(Image, image[half_height+th_height * 9:half_height + th_height * 10,:], "16UC1")
+
+        # img_1.header.stamp = data.header.stamp
+        # img_2.header.stamp = data.header.stamp
+        # img_3.header.stamp = data.header.stamp
+        # img_4.header.stamp = data.header.stamp
+        # img_5.header.stamp = data.header.stamp
+        # img_6.header.stamp = data.header.stamp
+        # img_7.header.stamp = data.header.stamp
+        # img_8.header.stamp = data.header.stamp
+        # img_9.header.stamp = data.header.stamp
+        # img_10.header.stamp = data.header.stamp
+        
+        # self.img_pub.publish(img_1)
+        # self.img_pub_1.publish(img_1)
+        # self.img_pub_2.publish(img_2)
+        # self.img_pub_3.publish(img_3)
+        # self.img_pub_4.publish(img_4)
+        # self.img_pub_5.publish(img_5)
+        # self.img_pub_6.publish(img_6)
+        # self.img_pub_7.publish(img_7)
+        # self.img_pub_8.publish(img_8)
+        # self.img_pub_9.publish(img_9)
+        # self.img_pub_10.publish(img_10)
+      # else:
+      #   pass
+
+
+    
+
+  #  while data.pose.pose.orientation.z >  pi: data.pose.pose.orientation.z -= 2.0 * pi
+  #  while data.pose.pose.orientation.z < -pi: data.pose.pose.orientation.z += 2.0 * pi
+
+if __name__ == '__main__':
+  rospy.init_node('image_transporter', anonymous=True)
+  try:
+    ImageTransporter()
+    rospy.spin()
+  except rospy.ROSInterruptException:
+    rospy.loginfo("image_transporter node finished.")

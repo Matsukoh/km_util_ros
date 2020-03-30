@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+# -*- coding:utf-8 -*-
+
+import numpy as np
+import math
+import time
+import tf
+
+import rospy
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist, PoseWithCovarianceStamped
+
+class Velocity2Odometry:
+    def __init__(self):
+        self.odom = Odometry()
+        self.odom.header.frame_id = "map"
+        self.dt = 1./rospy.get_param('~hz', 10)
+        self.v_prev = 0
+        self.w_prev = 0
+        rospy.Subscriber('initialpose', PoseWithCovarianceStamped, self.callback_initialpose, queue_size=10)
+        rospy.Subscriber('odom_velocity', Odometry, self.callback_odometry, queue_size=10)
+        self.odom_pub = rospy.Publisher('wheel_odometry', Odometry, queue_size=10)
+
+    def callback_initialpose(self, data):
+        print("Velocity2Odometory")
+        print("|----Recieved Initialpose")
+        self.odom.pose.pose.position    = data.pose.pose.position
+        self.odom.pose.pose.orientation = data.pose.pose.orientation
+    
+    def callback_odometry(self, data):
+        q = self.odom.pose.pose.orientation
+        # q_x = self.odom.pose.pose.orientation.x
+        # q_y = self.odom.pose.pose.orientation.y
+        # q_z = self.odom.pose.pose.orientation.z
+        # q_w = self.odom.pose.pose.orientation.w
+        # print(q_x)
+        e = tf.transformations.euler_from_quaternion((q.x, q.y, q.z, q.w))
+        v = data.twist.twist.linear.x
+        w = data.twist.twist.angular.z
+
+        # if abs(v-self.v_prev)/self.dt > 2.0:
+        #   print("testv")
+        #   if abs(v) > 0.8:
+
+        #   print("testv")
+        #   v = self.v_prev
+
+        # if abs(w-self.w_prev)/self.dt > 2.0 or abs(w) > 0.5:
+        #   print("testw")
+        #   print(self.w_prev)
+        #   print(w)
+        #   # print(abs(w-self.w_prev)/self.dt)
+        #   w = self.w_prev
+        # if abs(v) > 0.5:
+        #   print("testv")
+        #   v = self.v_prev
+
+        # if abs(w) > 0.5:
+        #   print("testw")
+          # print(self.w_prev)
+          # print(w)
+          # print(abs(w-self.w_prev)/self.dt)
+          # w = self.w_prev
+        
+        # if abs(w) > 0.4:
+        #   w = self.w_prev
+        
+        q_d = tf.transformations.quaternion_from_euler(e[0], e[1], e[2] + w * self.dt)
+        
+        self.odom.header.stamp = data.header.stamp
+        self.odom.pose.pose.position.x += v * math.cos(e[2]) * self.dt
+        self.odom.pose.pose.position.y += v * math.sin(e[2]) * self.dt
+        self.odom.pose.pose.orientation.x = q_d[0]
+        self.odom.pose.pose.orientation.y = q_d[1]
+        self.odom.pose.pose.orientation.z = q_d[2]
+        self.odom.pose.pose.orientation.w = q_d[3]
+
+        self.odom_pub.publish(self.odom)
+
+        self.w_prev = w
+        self.v_prev = v
+        
+
+if __name__ == '__main__':
+  rospy.init_node('velocity2odometry', anonymous=True)
+  try:
+    Velocity2Odometry()
+    rospy.spin()
+  except rospy.ROSInterruptException:
+    rospy.loginfo("velocity2odometry node finished.")

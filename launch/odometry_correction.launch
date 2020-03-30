@@ -1,0 +1,9 @@
+<launch>
+  <node pkg="km_utils_ros" type="odometry_correction" name="odometry_correction_node" output="screen">
+    <param name="hz" type="double" value="6.6"/>
+    <remap from="initialpose" to="/portable1/initialpose"/>
+    <remap from="true_odometry"        to="/portable1/odometry/filtered"/>
+    <remap from="odom_velocity"        to="/portable1/odometry/wheel"/>
+    <remap from="move_base/status"        to="/portable1/move_base/status"/>
+  </node>
+</launch>

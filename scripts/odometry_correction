@@ -1,0 +1,335 @@
+#!/usr/bin/env python
+# -*- coding:utf-8 -*-
+
+import numpy as np
+import math
+import time
+import transformations
+from numpy.random import *
+
+import rospy
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist, PoseWithCovarianceStamped
+from actionlib_msgs.msg import GoalStatusArray
+
+import message_filters_km
+
+import pyswarms as ps
+from pyswarms.utils.plotters.formatters import Mesher, Designer
+from pyswarms.utils.plotters import plot_cost_history, plot_contour, plot_surface
+
+
+class OdometryCorrection:
+    def __init__(self):
+        self.odom = Odometry()
+        self.odom.header.frame_id = "map"
+        self.dt = 1./rospy.get_param('~hz', 10)
+
+        self.pos_prev = None
+        self.status = None
+
+        # options = {'c1': 0.001, 'c2': 0.001, 'c3': 0.001, 'c4': 0.001, 'w': 0.0005}
+        # lb = [-0.01, -0.01, -0.01, -0.01, 0.0, 0.0]
+        # ub = [0.01, 0.01, 0.01, 0.01, 0.5, 0.5]
+
+        options = {'c1': 0.5, 'c2': 0.3, 'w': 0.1}
+        # lb = [0.0, 0.0, 0.0, 0.0]
+        # ub = [1.0, 1.0, 1.0, 0.5]
+        # lb = [0.0, 0.0, 0.0]
+        # ub = [3.0, 3.0, 1.2]
+        lb = [0.0, 0.0]
+        ub = [1.0, 1.0]
+
+        bounds = (np.array(lb), np.array(ub))
+        # self.optimizer = ps.single.GlobalBestPSO(n_particles=100, dimensions=4, options=options, bounds=bounds)
+        self.optimizer = ps.single.GlobalBestPSO(n_particles=20, dimensions=2, options=options, bounds=bounds)
+
+        rospy.Subscriber('initialpose', PoseWithCovarianceStamped, self.callback_initialpose, queue_size=10)
+        rospy.Subscriber('move_base/status', GoalStatusArray, self.callback_status, queue_size=10)
+        # rospy.Subscriber('odom_velocity', Odometry, self.callback_odometry, queue_size=10)
+        # rospy.Subscriber('odom_true', Odometry, self.callback_odometry, queue_size=10)
+        odom_1_sub_filter = message_filters_km.Subscriber('true_odometry', Odometry)
+        odom_2_sub_filter = message_filters_km.Subscriber('odom_velocity', Odometry)
+        # twist_sub_filter = message_filters_km.Subscriber('cmd_vel', Twist)
+        ts = message_filters_km.ApproximateTimeSynchronizer([odom_1_sub_filter, odom_2_sub_filter], 100, 0.1, allow_headerless=True)
+        ts.registerCallback(self.callback_odometry)
+        # rospy.Subscriber('odom_with_error', Odometry, self.callback_odometry, queue_size=10)
+        self.odom_pub = rospy.Publisher('wheel_odometry_corrected', Odometry, queue_size=10)
+
+    def callback_initialpose(self, data):
+        print("OdometryCorrection")
+        print("|----Recieved Initialpose")
+        self.odom.pose.pose.position    = data.pose.pose.position
+        self.odom.pose.pose.orientation = data.pose.pose.orientation
+        if self.pos_prev:
+            self.pos_prev.pose.pose.position    = data.pose.pose.position
+            self.pos_prev.pose.pose.orientation = data.pose.pose.orientation
+        else:
+            self.pos_prev = Odometry()
+            self.pos_prev.pose.pose.position    = data.pose.pose.position
+            self.pos_prev.pose.pose.orientation = data.pose.pose.orientation
+    
+    def callback_status(self, data):
+        status_stack = []
+        try:
+            for i in range(len(data.status_list)):
+                if data.status_list[i].status == 1:
+                    status_stack.append(True)
+                else:
+                    status_stack.append(False)
+                # print(data.status_list[i].text)
+                # print(data.status_list[i].status)
+            if any(status_stack):
+                self.status = True
+            else:
+                self.status = False 
+        except:
+            pass
+    
+    def callback_odometry(self, data_1, data_2):
+        if self.pos_prev and self.status:
+            q_c = data_1.pose.pose.orientation
+            e_c = transformations.euler_from_quaternion((q_c.w, q_c.x, q_c.y, q_c.z))
+            q_c_inv = transformations.quaternion_inverse((q_c.w, q_c.x, q_c.y, q_c.z))
+
+            q_p = self.pos_prev.pose.pose.orientation
+            e_p = transformations.euler_from_quaternion((q_p.w, q_p.x, q_p.y, q_p.z))
+            q_p_inv = transformations.quaternion_inverse((q_p.w, q_p.x, q_p.y, q_p.z))
+
+            pos_t = [data_1.pose.pose.position.x, data_1.pose.pose.position.y, e_c[2]]
+            pos_t1 = [self.pos_prev.pose.pose.position.x, self.pos_prev.pose.pose.position.y, e_p[2]]
+            velocity = [data_2.twist.twist.linear.x, data_2.twist.twist.angular.z]
+
+            # d_t =float(data_1.header.stamp - self.pos_prev.header.stamp)/10**9
+            dt_secs = float(data_1.header.stamp.secs - self.pos_prev.header.stamp.secs)
+            dt_nsecs = float(data_1.header.stamp.nsecs - self.pos_prev.header.stamp.nsecs)/10**9
+            dt = dt_secs + dt_nsecs
+
+            # print(float(data_1.header.stamp)/10**9)
+            # print(float(self.pos_prev.header.stamp)/10**9)
+            # print(d_t)
+
+            kwargs = {'pos_t': pos_t, 'pos_t1': pos_t1, 'velocity': velocity, 'dt': dt}
+            cost, pos = self.optimizer.optimize(self.fitness_function, iters=400, **kwargs)
+            
+            # E_rR = pos[0]
+            # E_rd = pos[1]
+            # E_lR = pos[2]
+            # E_ld = pos[3]
+
+            q = self.odom.pose.pose.orientation
+            # q_x = self.odom.pose.pose.orientation.x
+            # q_y = self.odom.pose.pose.orientation.y
+            # q_z = self.odom.pose.pose.orientation.z
+            # q_w = self.odom.pose.pose.orientation.w
+            # print(q_x)
+            e = transformations.euler_from_quaternion((q.w, q.x, q.y, q.z))
+            # e = transformations.euler_from_quaternion([0.99810947, 0.06146124, 0, 0])
+            
+            # print(e)
+
+            v = data_2.twist.twist.linear.x
+            w = data_2.twist.twist.angular.z
+
+            sigma_l = np.random.normal(0, abs(v) * pos[0])
+            sigma_y = np.random.normal(0, abs(w) * pos[1])
+
+            # sigma_l = np.random.normal(v, pos[0])
+            # sigma_y = np.random.normal(w, pos[1])
+            
+            # sigma_l = np.random.normal(0, abs(v) * pos[4])
+            # sigma_y = np.random.normal(0, abs(w) * pos[5])
+
+            # vx_t = (v + (E_rR + E_rd + E_lR + E_ld) + sigma_l) * math.cos(e[2])
+            # vy_t = (v + (E_rR + E_rd + E_lR + E_ld) + sigma_l) * math.sin(e[2])
+
+            # w_t = w + (E_rR + E_rd - E_lR - E_ld)/(E_rd + E_ld)
+
+            # vx_t = (v * pos[0] + sigma_l) * math.cos(e[2])
+            # vy_t = (v * pos[0] + sigma_l) * math.sin(e[2])
+
+            # w_t = w * pos[1] + sigma_y
+
+            # vx_t = (v * pos[2] + sigma_l) * math.cos(e[2])
+            # vy_t = (v * pos[2] + sigma_l) * math.sin(e[2])
+            # vx_t = (v + sigma_l) * pos[2] * math.cos(e[2])
+            # vy_t = (v + sigma_l) * pos[2] * math.sin(e[2])
+           
+            vx_t = (v + sigma_l) * math.cos(e[2])
+            vy_t = (v + sigma_l) * math.sin(e[2])
+
+            w_t = w + sigma_y
+
+            # vx_t = (v + np.random.normal(pos[0], 0.1)) * math.cos(e[2])
+            # vy_t = (v + np.random.normal(pos[0], 0.1)) * math.sin(e[2])
+
+            # w_t = w + np.random.normal(pos[1], 0.1)
+
+            # vx_t = v * math.cos(e[2])
+            # vy_t = v * math.sin(e[2])
+
+            # w_t = w
+
+            self.odom.header.stamp = data_1.header.stamp
+
+            self.odom.pose.pose.position.x += vx_t * dt
+            self.odom.pose.pose.position.y += vy_t * dt
+            q_d = transformations.quaternion_from_euler(e[0], e[1], e[2] + w_t * dt)
+            # print(e[2] + w_t * self.dt)
+            # print(q_d)
+            self.odom.pose.pose.orientation.x = q_d[1]
+            self.odom.pose.pose.orientation.y = q_d[2]
+            self.odom.pose.pose.orientation.z = q_d[3]
+            self.odom.pose.pose.orientation.w = q_d[0]
+
+            self.odom.twist.twist.linear.x = vx_t
+            self.odom.twist.twist.linear.y = vy_t
+            self.odom.twist.twist.angular.z = w_t
+
+            self.odom_pub.publish(self.odom)
+            # self.pos_prev = self.data_1
+
+        self.pos_prev = data_1
+    
+    def calc_yaw_transition(self, q, w):
+        e = transformations.euler_from_quaternion((q.w, q.x, q.y, q.z))
+        q_d = transformations.quaternion_from_euler(e[0], e[1], e[2] + w * self.dt)
+
+        return q_d
+    
+    # def fitness_function(self, x, pos_t, pos_t1, velocity, dt):
+    #     final_costs=[]
+    #     for i in range(x.shape[0]):
+    #         E_rR = x[i,0]
+    #         E_rd = x[i,1]
+    #         E_lR = x[i,2]
+    #         E_ld = x[i,3]
+
+    #         sigma_l = np.random.normal(0, x[i, 4] * abs(velocity[0]))
+    #         sigma_y = np.random.normal(0, x[i, 5] * abs(velocity[1]))
+
+    #         vx_t = (velocity[0] + (E_rR + E_rd + E_lR + E_ld) + sigma_l) * math.cos(pos_t1[2])
+    #         vy_t = (velocity[0] + (E_rR + E_rd + E_lR + E_ld) + sigma_l) * math.sin(pos_t1[2])
+
+    #         w_t = velocity[1] + (E_rR + E_rd - E_lR - E_ld)/(E_rd + E_ld) + sigma_y
+
+    #         cost = (
+    #             (pos_t[0] - pos_t1[0]) - vx_t * dt + 
+    #             (pos_t[1] - pos_t1[1]) - vy_t * dt +
+    #             (pos_t[2] - pos_t1[2]) - w_t  * dt
+    #             )
+    #         final_costs.append(abs(cost))
+
+    #     return final_costs
+
+    # def fitness_function(self, x, pos_t, pos_t1, velocity, dt):
+    #     final_costs=[]
+    #     for i in range(x.shape[0]):
+    #         P_l = x[i,0]
+    #         P_y = x[i,1]
+
+    #         # print(x[i, 2])
+    #         # print(x[i, 3])
+
+    #         sigma_l = np.random.normal(0, x[i, 2] * abs(velocity[0]))
+    #         sigma_y = np.random.normal(0, x[i, 3] * abs(velocity[1]))
+    #         # sigma_l = x[i, 2]
+    #         # sigma_y = x[i, 3]
+            
+
+    #         vx_t = (velocity[0] * P_l + sigma_l) * math.cos(pos_t1[2])
+    #         vy_t = (velocity[0] * P_l + sigma_l) * math.sin(pos_t1[2])
+
+    #         w_t = velocity[1] * P_y + sigma_y
+
+    #         cost = (
+    #             (pos_t[0] - pos_t1[0]) - vx_t * dt + 
+    #             (pos_t[1] - pos_t1[1]) - vy_t * dt +
+    #             (pos_t[2] - pos_t1[2]) - w_t  * dt
+    #             )
+    #         final_costs.append(cost**2)
+
+    #     return final_costs
+
+    def fitness_function(self, x, pos_t, pos_t1, velocity, dt):
+        final_costs=[]
+        for i in range(x.shape[0]):
+            # P_l = x[i,0]
+            # P_y = x[i,1]
+
+            # print(x[i, 2])
+            # print(x[i, 3])
+
+            sigma_l = np.random.normal(0, x[i, 0] * abs(velocity[0]))
+            sigma_y = np.random.normal(0, x[i, 1] * abs(velocity[1]))
+            # sigma_l = np.random.normal(velocity[0], x[i, 0])
+            # sigma_y = np.random.normal(velocity[1], x[i, 1])
+            # sigma_l = x[i, 2]
+            # sigma_y = x[i, 3]
+            
+
+            # vx_t = (velocity[0] + sigma_l) * x[i, 2] * math.cos(pos_t1[2])
+            # vy_t = (velocity[0] + sigma_l) * x[i, 2] * math.sin(pos_t1[2])
+            # vx_t = (velocity[0] * x[i, 2] + sigma_l) * math.cos(pos_t1[2])
+            # vy_t = (velocity[0] * x[i, 2] + sigma_l) * math.sin(pos_t1[2])
+            vx_t = (velocity[0] + sigma_l) * math.cos(pos_t1[2])
+            vy_t = (velocity[0] + sigma_l) * math.sin(pos_t1[2])
+
+
+            w_t = velocity[1] + sigma_y
+
+            cost = (
+                (pos_t[0] - pos_t1[0]) - vx_t * dt + 
+                (pos_t[1] - pos_t1[1]) - vy_t * dt +
+                (pos_t[2] - pos_t1[2]) - w_t  * dt
+                )
+            final_costs.append(abs(cost))
+        # print(final_costs)
+
+        return final_costs
+
+    # def fitness_function(self, x, pos_t, pos_t1, velocity, dt):
+    #     final_costs=[]
+    #     for i in range(x.shape[0]):
+    #         # P_l = x[i,0]
+    #         # P_y = x[i,1]
+
+    #         # print(x[i, 2])
+    #         # print(x[i, 3])
+
+    #         # sigma_l = np.random.normal(0, x[i, 0] * abs(velocity[0]))
+    #         # sigma_y = np.random.normal(0, x[i, 1] * abs(velocity[1]))
+    #         sigma_l = x[i, 0]
+    #         sigma_y = x[i, 1]
+    #         # sigma_l = np.random.normal(velocity[0], x[i, 0])
+    #         # sigma_y = np.random.normal(velocity[1], x[i, 1])
+    #         # sigma_l = x[i, 2]
+    #         # sigma_y = x[i, 3]
+            
+
+    #         # vx_t = (velocity[0] + sigma_l) * x[i, 2] * math.cos(pos_t1[2])
+    #         # vy_t = (velocity[0] + sigma_l) * x[i, 2] * math.sin(pos_t1[2])
+    #         vx_t = (velocity[0] + sigma_l) * math.cos(pos_t1[2])
+    #         vy_t = (velocity[0] + sigma_l) * math.sin(pos_t1[2])
+
+
+    #         w_t = velocity[1] + sigma_y
+
+    #         cost = (
+    #             (pos_t[0] - pos_t1[0]) - vx_t * dt + 
+    #             (pos_t[1] - pos_t1[1]) - vy_t * dt +
+    #             (pos_t[2] - pos_t1[2]) - w_t  * dt
+    #             )
+    #         final_costs.append(abs(cost))
+    #     # print(final_costs)
+
+    #     return final_costs
+        
+
+if __name__ == '__main__':
+  rospy.init_node('odometry_correction', anonymous=True)
+  try:
+    OdometryCorrection()
+    rospy.spin()
+  except rospy.ROSInterruptException:
+    rospy.loginfo("odometry_correction node finished.")

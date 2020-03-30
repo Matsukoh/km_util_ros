@@ -1,0 +1,430 @@
+#!/usr/bin/env python
+# -*- coding:utf-8 -*-
+import rospy
+import math 
+import tf
+import numpy as np
+import numpy.random as rd
+
+from math import cos, sin, sqrt, pi
+
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Pose, PoseArray
+from std_msgs.msg import String
+from std_msgs.msg import Float64
+
+from nav_msgs.msg import Odometry
+
+class GaussianNoiseModel(object):
+  """
+  多次元ガウス分布
+  """
+
+  def __init__(self, Cov):
+    """
+    コンストラクタ
+
+    @param ndarray(n,n) Cov : 分散共分散行列
+    """
+    self._Cov = Cov
+
+
+  def generate(self, num):
+    """
+    ノイズの生成
+
+    @param  int num : 粒子数
+    @return ndarray(n,num) : 雑音行列
+    """
+    n, _ = self._Cov.shape
+    return np.random.multivariate_normal(np.zeros(n), self._Cov, num).T
+
+
+  def logpdf(self, X):
+    """
+    対数確率密度関数
+
+    @param  ndarray(n,num) X
+    @param  int num : 粒子数
+    @return ndarray(num) : 対数確率密度
+    """
+    Cov = self._Cov
+    k, _ = Cov.shape
+    det_Cov = np.linalg.det(Cov)
+    Cov_inv = np.linalg.inv(Cov)
+    coefs = np.array([ x.dot(Cov_inv).dot(x.T) for x in X.T ])
+    return -k*np.log(2.*np.pi)/2. -np.log(det_Cov)/2. -coefs/2.
+
+
+class CauchyNoiseModel(object):
+  """
+  多次元独立コーシー分布
+
+  各変数に独立を仮定した多次元コーシー分布
+  """
+
+  def __init__(self, gma):
+    """
+    コンストラクタ
+
+    @param ndarray(n) gma : 尺度母数
+    """
+    self._gma = gma
+
+
+  def generate(self, num):
+    gma = self._gma
+    uni = np.random.rand(gma.size, num)
+    Gma = gma.reshape(gma.size,1) * np.ones(num)
+    return np.arctan(uni / Gma) /np.pi + 1./2.
+
+
+  def logpdf(self, X):
+    _, num = X.shape
+    gma = self._gma
+    Gma = gma.reshape(gma.size,1) * np.ones(num)
+    return np.sum(np.log(Gma/np.pi) - np.log(X**2 + Gma**2), axis=0)
+
+class ParticleFilter(object):
+  """
+  Particle Filter (粒子フィルタ)
+  """
+
+  def __init__(self, f, g, h, t_noise, o_noise, pars_init):
+    """
+    コンストラクタ
+
+    @param ndarray(nx,num) function( ndarray(nx,num) ) f : 状態遷移関数
+    @param ndarray(nx,num) function( ndarray(nu,num) ) g : 入力伝搬関数
+    @param ndarray(ny,num) function( ndarray(nx,num) ) h : 観測関数
+    @param NoiseModel t_noise : システムノイズモデル
+    @param NoiseModel o_noise : 観測ノイズモデル
+    @param ndarray(nx,num)  pars_init : 粒子の初期値
+    """
+    self._f = f
+    self._g = g
+    self._h = h
+
+    self._t_noise = t_noise
+    self._o_noise = o_noise
+
+    _, num = pars_init.shape
+    self._num = num
+    self._w = self._normalize(np.ones(num))
+    self._pars = pars_init
+    self._dist_flag = False
+
+
+  def update(self, y, u):
+    """
+    フィルタ更新
+
+    @param ndarray(ny) y : nでの観測ベクトル
+    @param ndarray(nu) u : nでの入力ベクトル
+    """
+    self._update_pars(u)
+    # self._change_dist()
+    self._update_weights(y)
+    self._resample()
+    # self._decimating()
+
+
+  def _update_pars(self, u):
+    """
+    状態遷移モデルに沿って粒子を更新
+
+    - 状態方程式
+        x_n = f(x_n-1) + g(u_n-1) + w
+    - 状態ベクトル x_n
+    - 入力ベクトル u_n
+    - 状態遷移関数 f(x)
+    - 入力伝搬関数 g(u)
+    - システムノイズ w
+
+    @param  ndarray(nu) u : n-1での入力ベクトル (u_n-1)
+    """
+    U = u.reshape(u.size,1) * np.ones(self._num)
+    self._pars = self._f(self._pars) + self._g(U) + self._t_noise.generate(self._num)
+    # if (np.sum(np.absolute(f[0, :]) - np.absolute(f[1, :])) < 0) or (np.sum(np.absolute(f[2, :]) - np.absolute(f[3,:])) < 0):
+    #   self._dist_flag = False
+    # else:
+    #   self._dist_flag = True
+
+
+  def _update_weights(self, y):
+    """
+    観測モデルに沿って尤度を計算
+
+    - 観測方程式
+        y_n = h(x_n) + v
+    - 状態ベクトル x_n
+    - 観測ベクトル y_n
+    - 観測関数 h(x)
+    - 観測ノイズ v
+
+    @param  ndarray(ny) y : nでの観測ベクトル (y_n)
+    """
+    Y = y.reshape(y.size,1) * np.ones(self._num)
+    loglh = self._o_noise.logpdf( np.absolute(Y - self._h(self._pars)))
+    self._w = self._normalize( np.exp( np.log(self._w) + loglh ) )
+
+
+  def _normalize(self, w):
+    """
+    重みの正規化
+
+    @param  ndarray(num) w : 各粒子の重み
+    @return ndarray(num) : 各粒子の正規化された重み
+    """
+    return w / np.sum(w)
+
+  
+  def _resample(self):
+    wcum = np.cumsum(self._w)
+    num = self._num
+    i = np.array(range(0, self._num))
+    
+    start = 0
+    # idxs = np.zeros(num).astype(np.int)
+    # rand = np.sort(np.random.rand(num))
+    # length = rand.size
+    
+    
+    # for i in xrange(length):
+    #     for j in xrange(start, num):
+    #         if rand[i] <= wcum[j]:
+    #             idxs[i] = start = j
+    #             break
+    idxs = np.array((np.random.choice(i, size=self._num, p=self._w)))
+    self._pars = self._pars[:,idxs]
+    self._w = self._normalize(self._w[idxs])
+
+
+  def _decimating(self):
+    index = np.where(self._w < np.average(self._w)/4)
+    self._pars = np.delete(self._pars, index, 1)
+    self._w = self._normalize(np.delete(self._w, index))
+    self._num = self._pars.shape[1]
+    E = np.eye(2) * self._w.size / 1000 
+    self._o_noise = GaussianNoiseModel(E)
+    if (self._w.size < 100):
+      self._num = 10000
+      # max_weight_idx = np.where(self._w == np.max(self._w))
+      # selected_idx = max_weight_idx[0][rd.randint(len(max_weight_idx))]
+      # max_wight_x = self._pars[0, selected_idx]
+      # max_wight_y = self._pars[2, selected_idx]
+      est = self.estimate()
+      est_sys = np.array([est[0], est[0], est[1], est[1]])
+      # self._pars = self.rand_uniform(max_wight_pos, max_wight_pos, self._num)
+      self._pars = np.random.multivariate_normal(est_sys, np.eye(4) * 10 , self._num).T
+      # print max_wight_x
+      # print max_wight_y
+      # print self._pars
+      self._w = self._normalize(np.ones(self._num))
+      self._resample()
+
+      E = np.eye(2) * 0.05
+      self._o_noise = GaussianNoiseModel(E)
+      
+      # E = np.ones(2) * 10
+      # self._o_noise = CauchyNoiseModel(E)
+      
+
+  def _change_dist(self):
+    if self._dist_flag == 0:
+      # E = np.eye(2) * 1
+      # self._o_noise = GaussianNoiseModel(E)
+      # self._dist_flag = False
+      E = np.ones(2) * 0.01
+      self._o_noise = CauchyNoiseModel(E)
+      # E = np.eye(2) * 0.01
+      # self._o_noise = GaussianNoiseModel(E)
+      self._dist_flag = 1
+    elif self._dist_flag == 1:
+      E = np.ones(2) * 0.1
+      self._o_noise = CauchyNoiseModel(E)
+      # E = np.eye(2) * 0.1
+      # self._o_noise = GaussianNoiseModel(E)
+      self._dist_flag = 0
+    # elif self._dist_flag == 3:
+    #   E = np.ones(2) * 1
+    #   self._o_noise = CauchyNoiseModel(E)
+    #   self._dist_flag = np.random.randint(4)
+    # print (self._dist_flag)
+    # print self._dist_flag
+    # if self._dist_flag:
+    #   E = np.ones(2) * 0.01
+    #   self._o_noise = CauchyNoiseModel(E)
+    # else:
+    #   E = np.ones(2) * 10
+    #   self._o_noise = CauchyNoiseModel(E)
+    # E = np.eye(2) * np.random.normal(1, 1)
+    # self._o_noise = GaussianNoiseModel(E)
+
+
+  def rand_uniform(self, mins, maxs, num):
+    """
+    初期粒子の生成用
+
+    @param  ndarray(nx) mins : 粒子の各最小値
+    @param  ndarray(nx) maxs : 粒子の各最大値
+    @param  int num : 粒子数
+    @return ndarray(nx,num)  : 初期粒子
+    """
+    nx = mins.size
+    return (mins.reshape(nx, 1) * np.ones(num) + (maxs - mins).reshape(nx, 1) * np.random.rand(nx, num))
+
+
+  def estimate(self):
+    """
+    状態推定
+
+    @return ndarray(nx) : 状態ベクトルの推定値
+    """
+    state = np.sum(self._pars * self._w, axis=1)
+    return self._h(state)
+
+  def particles(self):
+    """
+    粒子
+
+    @return ndarray(nx,num)
+    """
+    return self._pars
+
+class ParticleFilteringClass:
+
+  def __init__(self):
+
+    self.odom_frame = rospy.get_param('~odom_frame_id', 'odom')
+    self.base_frame = rospy.get_param('~base_frame_id', 'base_footprint')
+    
+    self.print_tf   = rospy.get_param('~print_tf', False)
+
+    self.init_flag = False
+
+    self.odom_pub    = rospy.Publisher(rospy.get_param('~pub_odom_topic_name', 'pub_odom'), Odometry, queue_size=1000)
+    self.particles_pub = rospy.Publisher(rospy.get_param('~pub_particles_topic_name', 'particles'), PoseArray, queue_size=1000)
+
+    self.sys_dist_name = rospy.get_param('~system_noise_distribution', 'Gaussian')
+    self.obs_dist_name = rospy.get_param('~observation_noise_distribution', 'Gaussian')
+
+    # パラメータ設定 --------------------
+    num = rospy.get_param('~particles_number', 1000)  # 粒子数
+    v_sys = rospy.get_param('~system_noise_covariance', 0.01)  # システムノイズの共分散
+    v_obs = rospy.get_param('~observation_noise_covariance', 0.1)  # 観測ノイズの共分散
+    v_noise = 0.05
+
+    # 初期粒子()
+    mins = -5.0 * np.ones(4)
+    maxs = +5.0 * np.ones(4)
+    pars_init = self.rand_uniform(mins, maxs, num)
+    # ---------------------------------
+
+    # 状態モデルの生成 (2次階差モデル)
+    A = np.kron(np.eye(2), np.array([[2, -1], [1, 0]]))
+    f = lambda X: A.dot(X)  # 状態遷移関数の定義
+    B = np.zeros(1)
+    g = lambda U: B.dot(U)
+
+    if self.sys_dist_name == 'Gaussian':
+      C = np.eye(4) * v_sys
+      sysn_model = GaussianNoiseModel(C)
+    elif self.sys_dist_name == 'Cauchy':
+      C = np.ones(4) * v_sys
+      sysn_model = CauchyNoiseModel(C)
+    else:
+      rospy.loginfo("Invalid Name for System Noise Distribution")
+
+    # 観測モデルの生成 (直接観測モデル)
+    D = np.kron(np.eye(2), np.array([1, 0]))
+    h = lambda X: D.dot(X)  # 観測関数の定義
+
+    if self.obs_dist_name == 'Gaussian':
+      E = np.eye(2) * v_obs 
+      obsn_model = GaussianNoiseModel(E)
+    elif self.obs_dist_name == 'Cauchy':
+      E = np.ones(2) * v_obs 
+      obsn_model = CauchyNoiseModel(E)
+    else:
+      rospy.loginfo("Invalid Name for Observation Noise Distribution")
+
+    self.pf = ParticleFilter(f, g, h, sysn_model, obsn_model, pars_init)
+    
+    rospy.Subscriber(rospy.get_param('~sub_odom_topic_name', 'sub_odom'), Odometry, self.callback_filtering,queue_size=1000)
+
+
+  def rand_uniform(self, mins, maxs, num):
+    """
+    初期粒子の生成用
+
+    @param  ndarray(nx) mins : 粒子の各最小値
+    @param  ndarray(nx) maxs : 粒子の各最大値
+    @param  int num : 粒子数
+    @return ndarray(nx,num)  : 初期粒子
+    """
+    nx = mins.size
+    return (mins.reshape(nx, 1) * np.ones(num) + (maxs - mins).reshape(nx, 1) * np.random.rand(nx, num))
+
+
+  def callback_filtering(self, data):
+    input_x = data.pose.pose.position.x
+    input_y = data.pose.pose.position.y
+
+    if self.init_flag == False:
+      init_sys = np.kron(np.ones(2), np.array([input_x, input_y]))
+      init_sys = np.array([input_x, input_x, input_y,input_y])
+      self.pf._pars = np.random.multivariate_normal(init_sys, np.eye(4) , self.pf._num).T
+      self.init_flag = True
+      rospy.loginfo("Finished Init")      
+
+    input_pos = np.array([input_x, input_y])
+    self.pf.update(input_pos, np.zeros(1))
+    est = self.pf.estimate()
+    particles = self.pf.particles()
+    
+    odom                         = Odometry()
+    odom.header.stamp            = rospy.Time.now()
+    odom.header.frame_id         = self.base_frame
+    odom.child_frame_id          = self.odom_frame
+    
+    odom.pose.pose.position.x    = est[0]
+    odom.pose.pose.position.y    = est[1]
+  
+    """
+    odom.pose.pose.orientation.x = data.pose.pose.orientation.x
+    odom.pose.pose.orientation.y = data.pose.pose.orientation.y
+    odom.pose.pose.orientation.z = data.pose.pose.orientation.z
+    odom.pose.pose.orientation.w = data.pose.pose.orientation.w
+    """
+    """
+    odom.pose.pose.orientation.x = 0
+    odom.pose.pose.orientation.y = 0
+    odom.pose.pose.orientation.z = 0
+    odom.pose.pose.orientation.w = 1
+    
+    odom.twist.twist.linear.x    = data.twist.twist.linear.x
+    odom.twist.twist.angular.z   = data.twist.twist.angular.z
+    """
+    self.odom_pub.publish(odom)
+
+    particle_array                     = PoseArray()
+    particle_array.header.stamp        = rospy.Time.now()
+    particle_array.header.frame_id     = self.base_frame
+    for i in range(len(particles[0,:])):
+      particle_pose                    = Pose()
+      particle_pose.position.x         = particles[0,i]
+      particle_pose.position.y         = particles[2,i]
+      
+      particle_array.poses.append(particle_pose)
+    
+    self.particles_pub.publish(particle_array)
+
+
+if __name__ == '__main__':
+  rospy.init_node('perticle_filtering', anonymous=True)
+  try:
+    ParticleFilteringClass()
+    rospy.spin()
+  except rospy.ROSInterruptException:
+    rospy.loginfo("perticle_filtering node finished.")

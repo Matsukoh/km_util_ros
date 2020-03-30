@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+    <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="base_footprint_to_camera_depth"
+        args="0 0 0.54 -1.570796326794896 0 -1.570796326794896 base_footprint camera_depth_optical_frame">
+    </node> -->
+
+    <!-- <node pkg="km_utils_ros" type="image_transporter" name="depth_image_transporter"  output="screen">
+        <param name="input_image"    type="string" value="/realsense_loomo/depth/image"/>
+        <param name="output_image"    type="string" value="/realsense_loomo/depth/encorded"/>
+    </node> -->
+
+    <node pkg="nodelet" type="nodelet" args="manager" name="generate_rgbd_manager" output="screen"/>
+    <!-- <node pkg="depth_image_proc" type="point_cloud_xyzrgb" name="depth_to_pointcloud_rgb" output="screen" respawn="true"> -->
+    <!-- <node pkg="nodelet" type="nodelet" name="depth_to_pointcloudrgb" args="load depth_image_proc/point_cloud_xyzrgb depth_image_to_pointcloud_manager" output="screen" respawn="true">
+        <remap from="rgb/image_rect_color" to="/camera/rgb/image_raw"/>
+        <remap from="depth_registered/image_rect" to="/realsense_loomo/depth/image"/>
+        <remap from="rgb/camera_info" to="/realsense_loomo/rgb/camera_info"/>
+        <param name="queue_size" type="int" value="5"/>
+    </node> -->
+    
+    <!-- <node pkg="nodelet" type="nodelet" name="depth_to_pointcloud" args="load depth_image_proc/point_cloud_xyz depth_image_to_pointcloud_manager" output="screen" respawn="true">
+        <remap from="camera_info" to="/realsense_loomo/depth/camera_info"/>
+        <remap from="image_rect" to="/realsense_loomo/depth/image"/>
+        <remap from="points" to="/points"/>
+    </node> -->
+    <node pkg="nodelet" type="nodelet" name="rtabmap_ros" args="load rtabmap_ros/rgbd_sync generate_rgbd_manager" output="screen" respawn="true">
+    <!-- <node pkg="rtabmap_ros" type="rgbd_sync" name="rgbd_sync_node" output="screen"> -->
+      <remap from="rgb/image"       to="/camera/rgb/image_raw"/>
+      <remap from="depth/image"     to="/realsense_loomo/depth/image"/>
+      <remap from="rgb/camera_info" to="/realsense_loomo/rgb/camera_info"/>
+      <!-- <remap from="odom"            to="odometry/rgbd"/>
+      <param name="frame_id"    type="string" value="camera_link"/>
+      <param name="publish_tf"  type="bool"   value="false"/> -->
+      <!-- <param name="initial_pose" type="string" value="0 0 0 0 0 0"/> -->
+   </node>
+</launch>

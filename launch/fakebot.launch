@@ -1,0 +1,10 @@
+<launch>
+
+  <arg name="odom_topic_name"   value="/odom"/>
+  <arg name="sub_cmd_topic_name"   value="/cmd_vel"/>
+
+  <node pkg="km_utils_ros" type="fakebot_odometry" name="fakebot" output="screen">
+    <param name="odom_topic_name"   value="$(arg odom_topic_name)"/>
+    <param name="sub_cmd_topic_name"   value="$(arg sub_cmd_topic_name)"/>
+  </node>
+</launch>

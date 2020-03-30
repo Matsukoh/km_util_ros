@@ -1,0 +1,68 @@
+<launch>
+
+  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="base_footprint_to_camera_depth"
+    args="0 0 0.54 -1.570796326794896 0 -1.570796326794896 base_footprint camera_depth_optical_frame">
+  </node> -->
+
+  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="odom_to_laser"
+    args="0 0 0 0 0 0 odom camera_depth_optical_frame">
+  </node> -->
+
+
+  <!-- <node pkg="nodelet" type="nodelet" args="manager" name="depth_image_to_laserscan_manager" output="screen"/> -->
+
+  <!--<node pkg="image_transport" type="republish" name="republish_depth" output="screen" args="compressedDepth in:=/camera/depth/image_rect_raw out:=/camera/depth/depth_raw_repub"/>-->
+ 
+
+<!--<node pkg="image_transport" type="republish" name="republish_color" output="screen" args="compressed in:=/hapirobo/loomo_realsense/color raw out:=/hapirobo/loomo_realsense/color/color_raw" >
+  </node> 
+
+ <node pkg="image_transport" type="republish" name="republish_depth" output="screen" args="compressed in:=/hapirobo/loomo_realsense/depth raw out:=/hapirobo/loomo_realsense/depth/depth_raw" >
+ </node>-->
+
+
+ <!-- <node pkg="tms_rc_bot" type="image_transporter" name="depth_image_converter" output="screen">
+    <remap from="input_image" to="/hapirobo/loomo_realsense/depth/depth_raw"/>
+    <remap from="output_image" to="/hapirobo/loomo_realsense/depth/depth_filtered"/>
+ </node> -->
+
+ <!-- <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan" output="screen" respawn="true">
+    <remap from="image" to="/hapirobo/loomo_realsense/depth/depth_filtered"/>
+    <remap from="camera_info" to="/hapirobo/loomo_realsense/depth/camera_info"/>
+    <remap from="scan" to="/hapirobo/loomo_realsense/scan"/>
+    <param name="height" value="239"/>
+    <param name="scan_time" value="1/5"/>
+    <param name="range_min" value="0.6"/>
+    <param name="range_max" value="4"/>
+ </node> -->
+
+<!--<node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan" output="screen" respawn="true">
+    <remap from="image" to="/camera/depth/image_rect_raw"/>
+ </node>-->
+
+ <!-- <node pkg="nodelet" type="nodelet" name="depth_image_to_laserscan" args="load depthimage_to_laserscan/DepthImageToLaserScanNodelet depth_image_to_laserscan_manager"  output="screen" respawn="true">
+    <remap from="image" to="/realsense_loomo/depth/image"/>
+    <remap from="camera_info" to="/realsense_loomo/depth/camera_info"/>
+    <remap from="scan" to="/realsense_loomo/scan"/>
+    <param name="height" value="239"/>
+    <param name="scan_time" value="1/5"/>
+    <param name="range_min" value="0.6"/>
+    <param name="range_max" value="4"/>
+ </node> -->
+
+ <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan_node" output="screen" respawn="true">
+    <remap from="image" to="/realsense_loomo/depth/image"/>
+    <remap from="camera_info" to="/realsense_loomo/depth/camera_info"/>
+     <!-- <remap from="image" to="/camera/depth/image_rect_raw"/> -->
+    <!-- <remap from="camera_info" to="/camera/depth/camera_info"/> -->
+    <!-- <remap from="scan" to="/realsense_loomo/scan"/> -->
+    <param name="height" type="int" value="1"/>
+    <!-- <param name="scan_time" type="double" value="1/5"/> -->
+    <param name="range_min" type="double" value="0.6"/>
+    <param name="range_max" type="double" value="4"/>
+    <param name="output_frame_id" type="string" value="camera_link"/>
+ </node>
+
+ 
+ 
+</launch>

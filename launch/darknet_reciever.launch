@@ -1,0 +1,12 @@
+<launch>
+
+  <arg name="bboxes_topic_name"   value="/JetsonNano/darknet_ros/darknet_ros/bounding_boxes"/>
+  <arg name="input_image_name"   value="/realsense_loomo/rgb/image_raw"/>
+  <arg name="output_image_name"   value="/detected_image"/>
+
+  <node pkg="km_utils_ros" type="darknet_reciever" name="darknet_reciever" output="screen">
+    <param name="bboxes"   value="$(arg bboxes_topic_name)"/>
+    <param name="input_img"   value="$(arg input_image_name)"/>
+    <param name="output_img"   value="$(arg output_image_name)"/>
+  </node>
+</launch>

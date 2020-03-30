@@ -1,0 +1,13 @@
+<launch>
+   <node pkg="rtabmap_ros" type="rgbd_odometry" name="visual_odometry" output="screen">
+      <remap from="rgb/image"       to="/realsense_loomo/rgb/image_raw"/>
+      <remap from="depth/image"     to="/realsense_loomo/depth/image"/>
+      <remap from="rgb/camera_info" to="/realsense_loomo/rgb/camera_info"/>
+      <!-- <remap from="rgbd_image"     to="/rgbd_image"/> -->
+      <remap from="odom"            to="odometry/rgbd"/>
+      <param name="frame_id"    type="string" value="camera_link"/>
+      <param name="publish_tf"  type="bool"   value="false"/>
+      <param name="subscribe_rgbd" type="bool" value="false"/>
+      <!-- <param name="initial_pose" type="string" value="0 0 0 0 0 0"/> -->
+   </node>
+</launch>

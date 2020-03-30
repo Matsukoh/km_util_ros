@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+     <node pkg="nodelet" type="nodelet" args="manager" name="republish_image_manager" output="screen"/>
+
+    <node name="republish" type="republish" pkg="image_transport" output="screen" 	args="compressed in:=/realsense_loomo/rgb/ raw out:=/realsense_loomo/rgb/image_raw" />
+
+    <node pkg="nodelet" type="nodelet" name="convert_metric" args="load depth_image_proc/convert_metric republish_image_manager" output="screen" respawn="true">
+        <!-- <remap from="camera_info" to="/realsense_loomo/depth/camera_info"/> -->
+        <remap from="image_raw" to="/realsense_loomo/depth/raw"/>
+        <remap from="image" to="/realsense_loomo/depth/image"/>
+    </node>
+</launch>

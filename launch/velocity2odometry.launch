@@ -1,0 +1,7 @@
+<launch>
+  <node pkg="km_utils_ros" type="velocity2odometry" name="velocity2odometry_node" output="screen">
+    <param name="hz" type="double" value="6.6"/>
+    <remap from="initialpose" to="/portable1/initialpose"/>
+    <remap from="odom_velocity"        to="/portable1//odometry/wheel"/>
+  </node>
+</launch>
