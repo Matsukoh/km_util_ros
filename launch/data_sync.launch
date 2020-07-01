@@ -1,0 +1,7 @@
+<launch>
+ <node pkg="km_utils_ros" type="data_sync" name="data_sync" output="screen">
+    <param name="odom_topic_name" type="string" value="/guidebot/odometry/filtered"/>
+    <param name="cmd_topic_name" type="string" value="/guidebot/cmd_vel"/>
+    <param name="people_topic_name" type="string" value="/people"/>
+ </node>
+</launch>

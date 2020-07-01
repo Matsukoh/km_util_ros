@@ -20,17 +20,25 @@ class DataSynchronizer:
   def __init__(self):
 
     self.clk_pub = rospy.Publisher(rospy.get_param('~clk_topic_name', 'clk'), Empty, queue_size=10)
-    odom_sub_filter = message_filters.Subscriber(rospy.get_param('~odom_topic_name', '/guidebot/odometry/filtered'), Odometry)
-    cmd_sub_filter = message_filters.Subscriber(rospy.get_param('~cmd_topic_name', '/guidebot/cmd_vel'), Twist)
+    odom_sub_filter = message_filters.Subscriber(rospy.get_param('~odom_topic_name', 'odom'), Odometry)
+    cmd_sub_filter = message_filters.Subscriber(rospy.get_param('~cmd_topic_name', 'cmd_vel'), Twist)
     people_sub_filter = message_filters.Subscriber(rospy.get_param('~peopel_topic_name', 'people'), People)
     clk_sub_filter = message_filters.Subscriber(rospy.get_param('~clk_topic_name', 'clk'), Empty)
     self.clk_rate = rospy.get_param('~clk_rate', 1)
 
+    self.odom_pub = rospy.Publisher("/sync" + rospy.get_param('~odom_topic_name', 'odom'), Odometry, queue_size=100)
+    self.cmd_pub = rospy.Publisher("/sync" + rospy.get_param('~cmd_topic_name', 'cmd_vel'), Twist, queue_size=100)
+    self.people_pub = rospy.Publisher("/sync" + rospy.get_param('~people_topic_name', 'cmd_vel'), People, queue_size=100)
+
     ts = message_filters.ApproximateTimeSynchronizer([odom_sub_filter, cmd_sub_filter, people_sub_filter,  clk_sub_filter], 100, 1.0, allow_headerless=True)
     ts.registerCallback(self.callback_sync)
   
-  def callback_sync(self, data_1, data_2, data3, data4):
-    print("Not implemented")
+  def callback_sync(self, data1, data2, data3, data4):
+    print("DataSynchronizer")
+    print("|----Publishing synchronized data")
+    self.odom_pub.publish(data1)
+    self.cmd_pub.publish(data2)
+    self.people_pub.publish(data3)
 
   def clk_publisher(self):
     r = rospy.Rate(self.clk_rate)
