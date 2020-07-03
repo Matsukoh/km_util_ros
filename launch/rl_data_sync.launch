@@ -8,6 +8,9 @@
       <param name="obs_topic_name" type="string" value="/obs"/>
       <param name="act_topic_name" type="string" value="/act"/>
       <param name="done_topic_name" type="string" value="/done"/>
+      <param name="reward_topic_name" type="string" value="/reward"/>
+      <param name="stack_topic_name" type="string" value="/rl_stack"/>
       <param name="clk_rate" type="double" value="0.5"/>
+      <param name="max_vel" type="double" value="0.8"/>
    </node>
 </launch>

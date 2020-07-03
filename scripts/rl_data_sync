@@ -16,7 +16,7 @@ from people_msgs.msg import People
 from geometry_msgs.msg import Twist
 from actionlib_msgs.msg import GoalStatusArray
 from geometry_msgs.msg import PoseStamped
-from rl_msgs.msg import Observation, Action, IsTerminal
+from rl_msgs.msg import Observation, Action, IsTerminal, Reward, RLStack
 import message_filters
 
 class DataSynchronizer:
@@ -39,12 +39,15 @@ class DataSynchronizer:
     self.obs_pub = rospy.Publisher(rospy.get_param('~obs_topic_name', 'obs'), Observation, queue_size=100)
     self.act_pub = rospy.Publisher(rospy.get_param('~act_topic_name', 'act'), Action, queue_size=100)
     self.done_pub = rospy.Publisher(rospy.get_param('~done_topic_name', 'done'), IsTerminal, queue_size=100)
+    self.reward_pub = rospy.Publisher(rospy.get_param('~reward_topic_name', 'reward'), Reward, queue_size=100)
+    self.stack_pub = rospy.Publisher(rospy.get_param('~stack_topic_name', 'rl_stack'), RLStack, queue_size=100)
 
     ts = message_filters.ApproximateTimeSynchronizer([odom_sub_filter, cmd_sub_filter, people_sub_filter, status_sub_filter, clk_sub_filter], 100, 1.0, allow_headerless=True)
     ts.registerCallback(self.callback_sync)
 
     self.goal = [0, 0]
     self.status_list = []
+    self.max_vel = rospy.get_param('~max_vel', 0.8)
   
   def callback_sync(self, data1, data2, data3, data4, data5):
     print("DataSynchronizer")
@@ -57,6 +60,13 @@ class DataSynchronizer:
     obs_msg = Observation()
     act_msg = Action()
     done_msg = IsTerminal()
+    reward_msg = Reward()
+    stack_msg = RLStack()
+
+    people_pos = np.empty((len(data3.people), 2))
+
+    robot_pos = np.array([data1.pose.pose.position.x, data1.pose.pose.position.y])
+    robot_vel = np.array([data1.twist.twist.linear.x, data1.twist.twist.angular.z])
 
     obs_msg.data.append(data1.pose.pose.position.x)
     obs_msg.data.append(data1.pose.pose.position.y)
@@ -67,6 +77,7 @@ class DataSynchronizer:
     for i in range(len(data3.people)):
       obs_msg.data.append(data3.people[i].position.x)
       obs_msg.data.append(data3.people[i].position.y)
+      people_pos[i,:] = np.array([data3.people[i].position.x, data3.people[i].position.y])
     
     act_msg.data.append(data2.linear.x)
     act_msg.data.append(data2.angular.z)
@@ -78,16 +89,49 @@ class DataSynchronizer:
       done_msg.done = False 
     else:
        done_msg.done = True
-    # print(self.status_list) 
+    # print(self.status_list)
+
+    r_col = self.collision_reward(robot_pos, robot_vel, people_pos)
+    r_vel = self.velociy_reward(robot_vel)
+    r_goal = self.goal_reward(done_msg.done)
+
+    reward_msg.reward = r_col + r_vel + r_goal
+
+    stack_msg.observation = obs_msg
+    stack_msg.action      = act_msg
+    stack_msg.done        = done_msg
+    stack_msg.reward      = reward_msg
 
     self.obs_pub.publish(obs_msg)
     self.act_pub.publish(act_msg)
     self.done_pub.publish(done_msg)
+    self.reward_pub.publish(reward_msg)
+    self.stack_pub.publish(stack_msg)
+
     del self.status_list[:]
     #######################################################
 
   def callback_goal(self, data):
     self.goal = [data.pose.position.x, data.pose.position.y]
+  
+  def collision_reward(self, robot_pos, robot_vel, people_pos):
+    dist_array = np.linalg.norm(people_pos - robot_pos, axis=1)
+    if np.min(dist_array) > 30:
+      r_col = -1000 * (np.pow(robot_vel[0], 2) + 0.5)
+    else:
+      r_col = 0
+    return r_col
+  
+  def velociy_reward(self, robot_vel):
+    r_vel = (robot_vel[0] - self.max_vel)/self.max_vel
+    return r_vel
+  
+  def goal_reward(self, done):
+    if done:
+      r_goal = 10
+    else:
+      r_goal = 0
+    return r_goal
 
   def clk_publisher(self):
     r = rospy.Rate(self.clk_rate)
