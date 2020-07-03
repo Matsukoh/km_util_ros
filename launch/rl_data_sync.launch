@@ -1,0 +1,13 @@
+<launch>
+   <node pkg="km_utils_ros" type="rl_data_sync" name="rl_data_sync" output="screen">
+      <param name="odom_topic_name" type="string" value="/guidebot/odometry/filtered"/>
+      <param name="cmd_topic_name" type="string" value="/guidebot/cmd_vel"/>
+      <param name="people_topic_name" type="string" value="/people"/>
+      <param name="status_topic_name" type="string" value="/guidebot/move_base/status"/>
+      <param name="goal_topic_name" type="string" value="/guidebot/move_base_simple/goal"/>
+      <param name="obs_topic_name" type="string" value="/obs"/>
+      <param name="act_topic_name" type="string" value="/act"/>
+      <param name="done_topic_name" type="string" value="/done"/>
+      <param name="clk_rate" type="double" value="0.5"/>
+   </node>
+</launch>
